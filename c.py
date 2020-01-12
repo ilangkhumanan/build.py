@@ -1,129 +1,118 @@
-Compiled with warnings.
-
-./src/Components/SearchBar/SearchBar.jsx
-  Line 12:12:  'errorMessage' is assigned a value but never used  no-unused-vars
-
-./src/Components/AdminBlock/AdminBlock.jsx
-  Line 1:17:  'useState' is defined but never used  no-unused-vars
-
-Search for the keywords to learn more about each warning.
-To ignore, add // eslint-disable-next-line to the line before.
-
-npm
-^C
-MacBook-Pro:late-checker tik$ npm run dev
-npm ERR! missing script: dev
-
-npm ERR! A complete log of this run can be found in:
-npm ERR!     /Users/tik/.npm/_logs/2020-01-12T10_02_24_075Z-debug.log
-MacBook-Pro:late-checker tik$ npm run
-Lifecycle scripts included in late-checker:
-  start
-    react-scripts start
-  test
-    react-scripts test
-
-available via `npm run-script`:
-  build
-    react-scripts build
-  eject
-    react-scripts eject
-MacBook-Pro:late-checker tik$ npm run-script
-Lifecycle scripts included in late-checker:
-  start
-    react-scripts start
-  test
-    react-scripts test
-
-available via `npm run-script`:
-  build
-    react-scripts build
-  eject
-    react-scripts eject
-MacBook-Pro:late-checker tik$ ls
-README.md		package-lock.json	public
-node_modules		package.json		src
-MacBook-Pro:late-checker tik$ cd
-MacBook-Pro:~ tik$ cd..
--bash: cd..: command not found
-MacBook-Pro:~ tik$ cd ..
-MacBook-Pro:Users tik$ ls
-Shared	tik
-MacBook-Pro:Users tik$ cd tik
-MacBook-Pro:~ tik$ ls
-Applications			Music
-Applications (Parallels)	Parallels
-Blend				Pictures
-Desktop				Public
-Documents			Untitled.ipynb
-Downloads			aws
-Library				build
-Movies				dlib
-MacBook-Pro:~ tik$ cd build
-MacBook-Pro:build tik$ ls
-Websites		flutter			taxikini
-amadeus			osxcputemp		xibo-docker-2.2.1
-aws			rekognition
-MacBook-Pro:build tik$ cd ..
-MacBook-Pro:~ tik$ cd ..
-MacBook-Pro:Users tik$ cd
-MacBook-Pro:~ tik$ cd
-MacBook-Pro:~ tik$ cd ..
-MacBook-Pro:Users tik$ cd ..
-MacBook-Pro:/ tik$ ls
-Applications			dev
-EFI-Backups			etc
-Library				home
-Network				installer.failurerequests
-System				net
-Users				private
-Volumes				sbin
-aos.build.py			tmp
-bin				usr
-cores				var
-MacBook-Pro:/ tik$ python3 aos.build.py
-MacBook-Pro:/ tik$ python3
-Python 3.7.5 (default, Nov  1 2019, 02:16:32) 
-[Clang 11.0.0 (clang-1100.0.33.8)] on darwin
-Type "help", "copyright", "credits" or "license" for more information.
->>> exit()
-MacBook-Pro:/ tik$ python3
-Python 3.7.5 (default, Nov  1 2019, 02:16:32) 
-[Clang 11.0.0 (clang-1100.0.33.8)] on darwin
-Type "help", "copyright", "credits" or "license" for more information.
->>> exit()
-MacBook-Pro:/ tik$ python3 aos.build.py
-MacBook-Pro:/ tik$ python3 aos.build.py
-MacBook-Pro:/ tik$ python3 aos.build.py
-MacBook-Pro:/ tik$ python3 aos.build.py
-MacBook-Pro:/ tik$ python3 nano aos.build.camera.py
-/usr/local/Cellar/python/3.7.5/Frameworks/Python.framework/Versions/3.7/Resources/Python.app/Contents/MacOS/Python: can't open file 'nano': [Errno 2] No such file or directory
-MacBook-Pro:/ tik$ nano aos.build.camera.py
-
-  GNU nano 2.0.6           File: aos.build.camera.py                  Modified  
-
-import opencv as c
-
-c.videocapture(0)
+import cv2, queue, threading, time
+import face_recognition
+import numpy as np
+import requests, os, re
+import glob
 
 
+# bufferless VideoCapture
+class VideoCapture:
+    def __init__(self, name):
+        self.cap = cv2.VideoCapture(name)
+        self.q = queue.Queue()
+        t = threading.Thread(target=self._reader)
+        t.daemon = True
+        t.start()
+
+    # read frames as soon as they are available, keeping only most recent one
+    def _reader(self):
+        while True:
+            ret, frame = self.cap.read()
+            if not ret:
+                break
+            if not self.q.empty():
+                try:
+                    self.q.get_nowait()   # discard previous (unprocessed) frame
+                except queue.Empty:
+                    pass
+            self.q.put(frame)
+
+    def read(self):
+        return self.q.get()
+
+see = cv2.VideoCapture(0)
+
+known_face_encodings = []
+known_face_names = []
+known_faces_filenames = []
 
 
+for (dirpath, dirnames, filenames) in os.walk('img/users/'):
+    known_faces_filenames.extend(filenames)
+    break
+
+for filename in known_faces_filenames:
+    face = face_recognition.load_image_file('img/users/' + filename)
+    known_face_names.append(re.sub("[0-9]",'', filename[:-4]))
+    known_face_encodings.append(face_recognition.face_encodings(face)[0])
 
 
+face_locations = []
+face_encodings = []
+face_names = []
+process_this_frame = True
+
+while True:
+    # Grab a single frame of video
+    ret, frame = see.read()
+
+    # Resize frame of video to 1/4 size for faster face recognition processing
+    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+
+    # Convert the image from BGR color (which OpenCV uses) to RGB color (which face_recognition uses)
+    rgb_small_frame = small_frame[:, :, ::-1]
+
+    # Only process every other frame of video to save time
+    if process_this_frame:
+        # Find all the faces and face encodings in the current frame of video
+        face_locations = face_recognition.face_locations(rgb_small_frame)
+        face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+
+        face_names = []
+        for face_encoding in face_encodings:
+            # See if the face is a match for the known face(s)
+            matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
+            name = "Unknown"
+
+            # # If a match was found in known_face_encodings, just use the first one.
+            # if True in matches:
+            #     first_match_index = matches.index(True)
+            #     name = known_face_names[first_match_index]
+
+            # Or instead, use the known face with the smallest distance to the new face
+            face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+            best_match_index = np.argmin(face_distances)
+            if matches[best_match_index]:
+                name = known_face_names[best_match_index]
+
+            face_names.append(name)
+
+    process_this_frame = not process_this_frame
 
 
+    # Display the results
+    for (top, right, bottom, left), name in zip(face_locations, face_names):
+        # Scale back up face locations since the frame we detected in was scaled to 1/4 size
+        top *= 4
+        right *= 4
+        bottom *= 4
+        left *= 4
 
+        # Draw a box around the face
+        cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
 
+        # Draw a label with a name below the face
+        cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
+        font = cv2.FONT_HERSHEY_DUPLEX
+        cv2.putText(frame, name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
 
+    # Display the resulting image
+    cv2.imshow('Video', frame)
 
+    # Hit 'q' on the keyboard to quit!
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
-
-
-
-
-^G Get Help  ^O WriteOut  ^R Read File ^Y Prev Page ^K Cut Text  ^C Cur Pos
-^X Exit      ^J Justify   ^W Where Is  ^V Next Page ^U UnCut Text^T To Spell
-
-import cv2 as class classname(object):
-  pass
+# Release handle to the webcam
+see.release()
+cv2.destroyAllWindows()
